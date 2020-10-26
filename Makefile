@@ -4,8 +4,6 @@ BINS := collatz-list-sys collatz-ivec-sys \
         collatz-list-par collatz-ivec-par
 
 HDRS := $(wildcard *.h)
-SRCS := $(wildcard *.c)
-OBJS := $(SRCS:.c=.o)
 
 CFLAGS := -g -std=gnu11 -O2
 LDLIBS := -lpthread
@@ -24,13 +22,17 @@ collatz-list-hw7: list_main.o hw07_malloc.o
 collatz-ivec-hw7: ivec_main.o hw07_malloc.o
 	gcc $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-collatz-list-par: list_main.o par_malloc.o
-	gcc $(CFLAGS) -o $@ $^ $(LDLIBS)
+collatz-list-par: list_main.o par_malloc.o thread_local_destructor.o
+	g++ $(CFLAGS) -o $@ $^ $(LDLIBS)
 
-collatz-ivec-par: ivec_main.o par_malloc.o
-	gcc $(CFLAGS) -o $@ $^ $(LDLIBS)
+collatz-ivec-par: ivec_main.o par_malloc.o thread_local_destructor.o
+	g++ $(CFLAGS) -o $@ $^ $(LDLIBS)
 
+thread_local_destructor.o: thread_local_destructor.cpp thread_local_destructor.h
+	g++ $< -o $@ -c -g -std=c++11 -O2
+	
 %.o : %.c $(HDRS) Makefile
+	gcc $< -o $@ -c $(CFLAGS)
 
 clean:
 	rm -f *.o $(BINS) time.tmp outp.tmp

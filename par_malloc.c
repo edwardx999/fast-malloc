@@ -25,6 +25,7 @@
 #include <string.h>
 #include <pthread.h>
 #include "xmalloc.h"
+#include "thread_local_destructor.h"
 
 // Macros for likelihood builtins for minor comparison optimizations
 // from https://www.geeksforgeeks.org/branch-prediction-macros-in-gcc/
@@ -496,6 +497,20 @@ static void* cleanup(void* _)
 	return 0;
 }
 
+static void release_to_global(local_reserve* reserve)
+{
+	spinlock_lock(&reserve->queue_lock);
+	(*reserve->cache_end) = reserve->queue;
+	reserve->queue = reserve->cache;
+	spinlock_unlock(&reserve->queue_lock);
+	// Awakens the garbage collector thread
+	atomic_fetch_add_explicit(&awakenings, 1, memory_order_release);
+	pthread_cond_signal(&gc_cv);
+	reserve->cache = 0;
+	reserve->cache_end = &reserve->cache;
+	reserve->cache_size = 0;
+}
+
 // Gets the thread's local free list reserve
 static local_reserve* get_reserve()
 {
@@ -507,6 +522,7 @@ static local_reserve* get_reserve()
 		list.reserve = &reserve;
 		reserve.cache_end = &reserve.cache;
 		push_local_reserve(&list);
+		on_thread_exit((destructor_function_t)&release_to_global, &reserve);
 	}
 	return &reserve;
 }
@@ -612,16 +628,7 @@ static void insert_into_cache(local_reserve* reserve, free_list_node* node, size
 	// For frees of large allocations
 	if (reserve->cache_size >= CACHE_LIMIT)
 	{
-		spinlock_lock(&reserve->queue_lock);
-		(*reserve->cache_end) = reserve->queue;
-		reserve->queue = reserve->cache;
-		spinlock_unlock(&reserve->queue_lock);
-		// Awakens the garbage collector thread
-		atomic_fetch_add_explicit(&awakenings, 1, memory_order_release);
-		pthread_cond_signal(&gc_cv);
-		reserve->cache = 0;
-		reserve->cache_end = &reserve->cache;
-		reserve->cache_size = 0;
+		release_to_global(reserve);
 	}
 }
 
