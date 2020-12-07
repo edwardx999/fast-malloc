@@ -530,7 +530,7 @@ static local_reserve* get_reserve()
 // Byte aligns the data
 static size_t fix_size(size_t _bytes)
 {
-	return div_up(_bytes + 16, 16) * 16;
+	return div_up(_bytes + sizeof(memblock), 16) * 16;
 }
 
 // Allocates memory from the local cache if there is some available
@@ -720,12 +720,15 @@ void* xmalloc(size_t _bytes)
 				return from_global_heap;
 			}
 		}
-
+		
 		// If there's nothing available, we'll finally have to mmap more space
-		if (data)
 		{
-			char* last = (char*)(div_up((size_t)data, PAGE_SIZE) * PAGE_SIZE);
-			munmap(last, data_end - last);
+			size_t const left = data_end - data;
+			if (left)
+			{
+				free_list_node* block = (free_list_node*)data;
+				insert_into_cache(reserve, block, left);
+			}
 		}
 		size_t const block_size = 16 * PAGE_SIZE;
 		size_t const to_alloc = block_size > needed
@@ -734,10 +737,11 @@ void* xmalloc(size_t _bytes)
 		data_end = data + to_alloc;
 	}
 
-	// Reutrns the data that's safe to use
+	// Returns the data that's safe to use
 	memblock* ret = (memblock*)data;
-	ret->size = needed;
-	data += needed;
+	size_t const block_size = (data_end - data) >= sizeof(memblock) + needed ? needed : data_end - data;
+	ret->size = block_size;
+	data += block_size;
 	return ret->data;
 }
 
